@@ -174,6 +174,10 @@ class ScriptManagerController:
                 """Process queued output in UI thread"""
                 nonlocal buffer, last_flush
                 
+                # Track last scroll time for periodic scrolling
+                if not hasattr(process_output_queue, 'last_scroll'):
+                    process_output_queue.last_scroll = time.time()
+                
                 # Pull items from queue - process ALL available items
                 items_processed = 0
                 try:
@@ -218,6 +222,13 @@ class ScriptManagerController:
                                     self.ui.append_log(line, tag)
                             buffer = []
                             last_flush = time.time()
+                
+                # Periodic scroll to keep output visible (every 100ms)
+                current_time = time.time()
+                if self.ui and (current_time - process_output_queue.last_scroll) > 0.1:
+                    if hasattr(self.ui, 'output_text'):
+                        self.ui.output_text.see("end")
+                    process_output_queue.last_scroll = current_time
                 
                 # Schedule next check if process still running - check very frequently
                 if process.poll() is None or not output_queue.empty():

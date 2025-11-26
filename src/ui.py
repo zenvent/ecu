@@ -35,7 +35,16 @@ class ScriptManagerUI:
         self.root = root
         self.controller = controller
         self.root.title("Script Manager")
-        self.root.geometry("1000x800")
+        
+        # Calculate 80% of screen size and center the window
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        window_width = int(screen_width * 0.8)
+        window_height = int(screen_height * 0.8)
+        x_position = int((screen_width - window_width) / 2)
+        y_position = int((screen_height - window_height) / 2)
+        self.root.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+        
         self.root.overrideredirect(True) # Hide default title bar
         
         # Main Container (Border Effect)
@@ -90,6 +99,20 @@ class ScriptManagerUI:
 
         self._setup_scripts_tab()
         self._setup_actuators_tab()
+        
+        # Resize Handle (bottom-right corner)
+        self.resize_grip = tk.Label(self.main_container, text="⋰", font=("Segoe UI", 12), 
+                                     bg=THEMES['dark']['bg'], fg=THEMES['dark']['fg'], 
+                                     cursor="size_nw_se")
+        self.resize_grip.place(relx=1.0, rely=1.0, anchor='se', x=-5, y=-5)
+        self.resize_grip.bind('<Button-1>', self._start_resize)
+        self.resize_grip.bind('<B1-Motion>', self._on_resize)
+        
+        # Resize state
+        self.resize_start_x = 0
+        self.resize_start_y = 0
+        self.resize_start_width = 0
+        self.resize_start_height = 0
 
         # Apply Theme - Call this LAST so all widgets exist
         self.colors = THEMES[self.current_theme]
@@ -287,7 +310,19 @@ class ScriptManagerUI:
             
             self.history_text.config(state='normal')
             self.history_text.delete(1.0, tk.END)
-            self.history_text.insert(tk.END, content)
+            
+            # Insert with tags
+            for line in content.splitlines(keepends=True):
+                tag = None
+                lower_text = line.lower()
+                if "error" in lower_text or "exception" in lower_text or "critical" in lower_text:
+                    tag = 'error'
+                elif "warn" in lower_text:
+                    tag = 'warning'
+                elif "info" in lower_text:
+                    tag = 'info'
+                self.history_text.insert(tk.END, line, tag)
+            
             self.history_text.config(state='disabled')
             
             # Force update line numbers
@@ -309,16 +344,6 @@ class ScriptManagerUI:
                     self.history_text.search_state['matches'] = []
                     self.history_text.search_state['current_index'] = -1
                     self.history_text.search_state['label'].config(text="0/0")
-
-    def _clear_history_preview(self):
-        self.history_text.config(state='normal')
-        self.history_text.delete(1.0, tk.END)
-        self.history_text.config(state='disabled')
-        
-        # Force update line numbers
-        if hasattr(self, 'history_gutter'):
-            self._update_line_numbers(self.history_text, self.history_gutter)
-
     def _on_run_clicked(self):
         selection = self.script_tree.selection()
         if selection:
@@ -525,6 +550,19 @@ class ScriptManagerUI:
         x = self.root.winfo_x() + deltax
         y = self.root.winfo_y() + deltay
         self.root.geometry(f"+{x}+{y}")
+    
+    def _start_resize(self, event):
+        self.resize_start_x = event.x_root
+        self.resize_start_y = event.y_root
+        self.resize_start_width = self.root.winfo_width()
+        self.resize_start_height = self.root.winfo_height()
+    
+    def _on_resize(self, event):
+        delta_x = event.x_root - self.resize_start_x
+        delta_y = event.y_root - self.resize_start_y
+        new_width = max(800, self.resize_start_width + delta_x)  # Minimum width 800
+        new_height = max(600, self.resize_start_height + delta_y)  # Minimum height 600
+        self.root.geometry(f"{new_width}x{new_height}")
 
     def _toggle_maximize(self):
         if self.root.state() == 'zoomed':
@@ -767,6 +805,9 @@ class ScriptManagerUI:
 
         if hasattr(self, 'history_text'):
             self.history_text.configure(bg=c['input_bg'], fg=c['fg'], insertbackground=c['fg'])
+            self.history_text.tag_config('info', foreground=c['info_fg'])
+            self.history_text.tag_config('warning', foreground=c['warning_fg'])
+            self.history_text.tag_config('error', foreground=c['error_fg'])
             
         if hasattr(self, 'history_gutter'):
             self.history_gutter.configure(bg=c['btn_bg'], fg=c['fg'])
@@ -785,6 +826,10 @@ class ScriptManagerUI:
             for btn in [self.close_button, self.max_button, self.min_button, self.theme_button]:
                 btn.configure(bg=c['bg'], fg=c['fg'], activebackground=c['select_bg'], activeforeground=c['select_fg'])
             self.close_button.configure(activebackground='red', activeforeground='white')
+        
+        # Resize Grip
+        if hasattr(self, 'resize_grip'):
+            self.resize_grip.configure(bg=c['bg'], fg=c['fg'])
         
         # TTK Styles
         style.configure('.', background=c['bg'], foreground=c['fg'], fieldbackground=c['input_bg'])
