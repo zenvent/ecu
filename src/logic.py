@@ -40,8 +40,8 @@ class ScriptManagerController:
 
         for filename, path in self.scripts.items():
             display_name = self._format_script_name(filename)
-            description = self.get_script_description(filename)
-            metadata.append((filename, display_name, description))
+            description, flags = self.get_script_details(filename)
+            metadata.append((filename, display_name, description, flags))
         return metadata
 
     def _format_script_name(self, filename):
@@ -52,33 +52,42 @@ class ScriptManagerController:
         # Title Case
         return name.title()
 
-    def get_script_description(self, script_name):
+    def get_script_details(self, script_name):
         script_path = self.scripts.get(script_name)
+        description = "Unknown Script"
+        flags = []
+        
         if not script_path:
-            return "Unknown Script"
+            return description, flags
         
         try:
             with open(script_path, 'r', encoding='utf-8', errors='ignore') as f:
-                # Read first few lines to find description
-                for _ in range(10):
+                # Read first few lines
+                for _ in range(15):
                     line = f.readline()
                     if not line:
                         break
                     if "Description:" in line:
-                        # Extract text after "Description:"
-                        return line.split("Description:", 1)[1].strip()
+                        description = line.split("Description:", 1)[1].strip()
+                    if "Flags:" in line:
+                        flags_str = line.split("Flags:", 1)[1].strip()
+                        flags = [f.strip() for f in flags_str.split(',') if f.strip()]
         except Exception:
             pass
 
-        # Fallback if no description found
-        ext = os.path.splitext(script_name)[1]
-        if ext == '.ps1':
-            return "PowerShell Script"
-        elif ext == '.sh':
-            return "Shell Script (Bash)"
-        elif ext == '.py':
-            return "Python Script"
-        return "Executable Script"
+        if description == "Unknown Script":
+            # Fallback
+            ext = os.path.splitext(script_name)[1]
+            if ext == '.ps1':
+                description = "PowerShell Script"
+            elif ext == '.sh':
+                description = "Shell Script (Bash)"
+            elif ext == '.py':
+                description = "Python Script"
+            else:
+                description = "Executable Script"
+                
+        return description, flags
 
     def abort_script(self):
         if self.current_process and self.current_process.poll() is None:
@@ -104,7 +113,7 @@ class ScriptManagerController:
                 if self.ui:
                     self.ui.append_log(f"Error sending input: {str(e)}\n", 'error')
 
-    def run_script(self, script_name):
+    def run_script(self, script_name, flags=None):
         script_path = self.scripts.get(script_name)
         if not script_path:
             return
@@ -114,10 +123,10 @@ class ScriptManagerController:
             self.ui.append_log(f"{'='*50}\nRunning {script_name} at {time.strftime('%H:%M:%S')}\n{'='*50}\n", 'info')
 
         # Run in a separate thread to keep UI responsive
-        thread = threading.Thread(target=self._execute_script_thread, args=(script_name, script_path))
+        thread = threading.Thread(target=self._execute_script_thread, args=(script_name, script_path, flags))
         thread.start()
 
-    def _execute_script_thread(self, script_name, script_path):
+    def _execute_script_thread(self, script_name, script_path, flags=None):
         try:
             # Determine command based on extension
             if script_name.endswith('.ps1'):
@@ -136,6 +145,10 @@ class ScriptManagerController:
                 cmd = ["cmd.exe", "/c", script_path]
             else:
                 cmd = [script_path]
+            
+            # Append flags if any
+            if flags:
+                cmd.extend(flags)
 
             self.current_process = subprocess.Popen(
                 cmd,

@@ -57,7 +57,8 @@ class ScriptManagerUI:
         self.theme_button.place(relx=1.0, x=-10, y=10, anchor='ne')
         
         self.notebook = ttk.Notebook(self.main_container)
-        self.notebook.pack(expand=True, fill='both', padx=10, pady=40) # Add top padding for theme button
+        self.notebook.pack(expand=True, fill='both', padx=10, pady=10) # Add top padding for theme button
+        self.theme_button.lift()
 
         # Tabs
         self.scripts_tab = ttk.Frame(self.notebook)
@@ -66,11 +67,13 @@ class ScriptManagerUI:
         self.notebook.add(self.scripts_tab, text='Scripts')
         self.notebook.add(self.actuators_tab, text='Actuators')
 
+        # Initialize colors early
+        self.colors = THEMES[self.current_theme]
+
         self._setup_scripts_tab()
         self._setup_actuators_tab()
 
         # Apply Theme - Call this LAST so all widgets exist
-        self.colors = THEMES[self.current_theme]
         # Delay application slightly to ensure window handle is ready for DWM
         self.root.after(10, self._apply_theme)
 
@@ -89,10 +92,10 @@ class ScriptManagerUI:
         
         columns = ('name', 'description')
         self.script_tree = ttk.Treeview(table_frame, columns=columns, show='headings')
-        self.script_tree.heading('name', text='Script Name')
-        self.script_tree.heading('description', text='Description')
-        self.script_tree.column('name', width=200)
-        self.script_tree.column('description', width=400)
+        self.script_tree.heading('name', text='Script Name', anchor='w')
+        self.script_tree.heading('description', text='Description', anchor='w')
+        self.script_tree.column('name', width=200, anchor='w')
+        self.script_tree.column('description', width=300, anchor='w')
         
         scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.script_tree.yview)
         self.script_tree.configure(yscrollcommand=scrollbar.set)
@@ -120,8 +123,9 @@ class ScriptManagerUI:
         self.run_button = ttk.Button(action_bar, text="❯ Run Selected Script", command=self._on_run_clicked, state='disabled')
         self.run_button.pack(side='left', padx=5)
 
-        self.abort_button = ttk.Button(action_bar, text="⏹ Abort Script", command=self._on_abort_clicked, state='disabled')
-        # self.abort_button.pack(side='left', padx=5) # Don't pack initially
+        # Flags Frame
+        self.flags_frame = ttk.Frame(action_bar)
+        self.flags_frame.pack(side='left', padx=10)
 
         
 
@@ -142,8 +146,8 @@ class ScriptManagerUI:
         search_frame.pack(side='right')
 
         # Input Field
-        self.input_entry = tk.Entry(console_tab, font=("Consolas", 10), borderwidth=0, highlightthickness=0)
-        self.input_entry.pack(fill='x', padx=5, pady=(5, 0))
+        self.input_entry = tk.Entry(console_tab, font=("Consolas", 10), borderwidth=0, highlightthickness=0, bg=self.colors['input_bg'])
+        self.input_entry.pack(fill='x', padx=5, pady=5, ipady=2)
         self.input_entry.bind('<Return>', self._on_input_return)
         self.input_entry.bind('<FocusIn>', self._on_input_focus_in)
         self.input_entry.bind('<FocusOut>', self._on_input_focus_out)
@@ -245,10 +249,14 @@ class ScriptManagerUI:
             
             # Update History Tab
             self._update_history_list(script_name)
+            
+            # Update Flags
+            self._update_flags_ui(script_name)
         else:
             self.run_button.config(state='disabled')
             self.history_listbox.delete(0, tk.END)
             self._clear_history_preview()
+            self._clear_flags_ui()
 
     def _update_history_list(self, script_name):
         self.history_listbox.delete(0, tk.END)
@@ -300,22 +308,35 @@ class ScriptManagerUI:
                     self.history_text.search_state['matches'] = []
                     self.history_text.search_state['current_index'] = -1
                     self.history_text.search_state['label'].config(text="0/0")
+
     def _on_run_clicked(self):
         selection = self.script_tree.selection()
-        if selection:
+        if not selection:
+            return
+
+        current_text = self.run_button.cget('text')
+        
+        if "Stop" in current_text:
+            # Stop Action
+            self.controller.abort_script()
+            self.run_button.config(state='disabled') # Disable until stopped
+        else:
+            # Run Action
             self.clear_log()
             script_name = selection[0]
             
             # Update UI state
-            self.run_button.config(state='disabled')
-            self.abort_button.config(state='normal')
-            self.abort_button.pack(side='left', padx=5, after=self.run_button) # Show abort button
+            self.run_button.config(text="⏹ Stop Script")
             self.script_tree.config(selectmode='none')
             
-            self.controller.run_script(script_name)
+            # Collect flags
+            selected_flags = []
+            if hasattr(self, 'flag_vars'):
+                for flag, var in self.flag_vars.items():
+                    if var.get():
+                        selected_flags.append(flag)
 
-    def _on_abort_clicked(self):
-        self.controller.abort_script()
+            self.controller.run_script(script_name, flags=selected_flags)
 
     def _on_input_return(self, event):
         # Don't send if placeholder is active
@@ -329,9 +350,7 @@ class ScriptManagerUI:
             self.input_entry.delete(0, tk.END)
 
     def on_script_finished(self):
-        self.run_button.config(state='normal')
-        self.abort_button.config(state='disabled')
-        self.abort_button.pack_forget() # Hide abort button
+        self.run_button.config(state='normal', text="❯ Run Selected Script")
         self.script_tree.config(selectmode='browse')
         
         # Refresh history if the finished script is selected
@@ -346,7 +365,7 @@ class ScriptManagerUI:
         
         # Get data
         scripts_metadata = self.controller.get_scripts_metadata()
-        for filename, display_name, description in scripts_metadata:
+        for filename, display_name, description, flags in scripts_metadata:
             # Use filename as the item ID so we can retrieve it easily
             self.script_tree.insert('', tk.END, iid=filename, values=(display_name, description))
 
@@ -496,6 +515,26 @@ class ScriptManagerUI:
             
         self._apply_theme()
 
+
+    def _update_flags_ui(self, script_name):
+        self._clear_flags_ui()
+        
+        self.flag_vars = {}
+        
+        # Get flags from controller
+        _, flags = self.controller.get_script_details(script_name)
+        
+        if flags:
+            ttk.Label(self.flags_frame, text="Flags:").pack(side='left', padx=(0, 5))
+            for flag in flags:
+                var = tk.BooleanVar()
+                self.flag_vars[flag] = var
+                ttk.Checkbutton(self.flags_frame, text=flag, variable=var, style='Toggle.TCheckbutton').pack(side='left', padx=2)
+
+    def _clear_flags_ui(self):
+        for widget in self.flags_frame.winfo_children():
+            widget.destroy()
+        self.flag_vars = {}
 
     def _create_search_bar(self, parent, text_widget):
         frame = ttk.Frame(parent)
@@ -749,7 +788,8 @@ class ScriptManagerUI:
             self.history_listbox.configure(bg=c['tree_bg'], fg=c['tree_fg'], selectbackground=c['select_bg'], selectforeground=c['select_fg'])
         
         if hasattr(self, 'input_entry'):
-            self.input_entry.configure(bg=c['input_bg'], fg=c['input_fg'], insertbackground=c['fg'])
+            current_fg = 'gray' if getattr(self, 'input_has_placeholder', False) else c['input_fg']
+            self.input_entry.configure(bg=c['input_bg'], fg=current_fg, insertbackground=c['fg'])
 
         # Theme Button
         if hasattr(self, 'theme_button'):
