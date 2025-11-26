@@ -15,7 +15,7 @@ weights = [0.7, 0.15, 0.1, 0.02, 0.03]
 def generate_random_string(length):
     return ''.join(random.choices(string.ascii_letters + string.digits + " ", k=length))
 
-for i in range(1, 10001):
+for i in range(1, 100001):
     level = random.choices(log_levels, weights=weights)[0]
     
     # Determine line length

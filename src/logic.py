@@ -111,7 +111,7 @@ class ScriptManagerController:
 
         # Add separator
         if self.ui:
-            self.ui.append_log(f"\n{'='*50}\nRunning {script_name} at {time.strftime('%H:%M:%S')}\n{'='*50}\n", 'info')
+            self.ui.append_log(f"{'='*50}\nRunning {script_name} at {time.strftime('%H:%M:%S')}\n{'='*50}\n", 'info')
 
         # Run in a separate thread to keep UI responsive
         thread = threading.Thread(target=self._execute_script_thread, args=(script_name, script_path))
@@ -174,28 +174,31 @@ class ScriptManagerController:
                 """Process queued output in UI thread"""
                 nonlocal buffer, last_flush
                 
-                # Pull items from queue
+                # Pull items from queue - process ALL available items
+                items_processed = 0
                 try:
-                    while True:
+                    while items_processed < 1000:  # Safety limit per iteration
                         item = output_queue.get_nowait()
                         if item is None:  # Sentinel for end
-                            # Flush remaining buffer
+                            # Flush remaining buffer - final flush, DO update search
                             if buffer and self.ui:
                                 if hasattr(self.ui, 'append_log_batch'):
-                                    self.ui.append_log_batch([line for line, _ in buffer])
+                                    self.ui.append_log_batch([line for line, _ in buffer], skip_search_update=False)
                                 else:
                                     for line, tag in buffer:
                                         self.ui.append_log(line, tag)
                             return  # Done
                         
                         buffer.append(item)
+                        items_processed += 1
                         
-                        # Flush if buffer is large enough or enough time passed
+                        # Flush more aggressively: every 50 lines OR every 5ms
                         current_time = time.time()
-                        if len(buffer) >= 100 or (current_time - last_flush) > 0.1:
+                        if len(buffer) >= 50 or (current_time - last_flush) > 0.005:
                             if self.ui:
                                 if hasattr(self.ui, 'append_log_batch'):
-                                    self.ui.append_log_batch([line for line, _ in buffer])
+                                    # Skip search AND UI updates during batching for performance
+                                    self.ui.append_log_batch([line for line, _ in buffer], skip_search_update=True, skip_ui_updates=True)
                                 else:
                                     for line, tag in buffer:
                                         self.ui.append_log(line, tag)
@@ -203,16 +206,27 @@ class ScriptManagerController:
                             last_flush = time.time()
                             
                 except queue.Empty:
-                    pass
+                    # Flush any remaining buffer even if not full
+                    if buffer and self.ui:
+                        current_time = time.time()
+                        if (current_time - last_flush) > 0.005:  # 5ms
+                            if hasattr(self.ui, 'append_log_batch'):
+                                # Skip search AND UI updates during batching
+                                self.ui.append_log_batch([line for line, _ in buffer], skip_search_update=True, skip_ui_updates=True)
+                            else:
+                                for line, tag in buffer:
+                                    self.ui.append_log(line, tag)
+                            buffer = []
+                            last_flush = time.time()
                 
-                # Schedule next check if process still running
+                # Schedule next check if process still running - check very frequently
                 if process.poll() is None or not output_queue.empty():
-                    self.ui.root.after(50, process_output_queue)
+                    self.ui.root.after(10, process_output_queue)  # Check every 10ms
                 else:
-                    # Final flush
+                    # Final flush - DO update search
                     if buffer and self.ui:
                         if hasattr(self.ui, 'append_log_batch'):
-                            self.ui.append_log_batch([line for line, _ in buffer])
+                            self.ui.append_log_batch([line for line, _ in buffer], skip_search_update=False)
                         else:
                             for line, tag in buffer:
                                 self.ui.append_log(line, tag)

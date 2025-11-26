@@ -163,11 +163,18 @@ class ScriptManagerUI:
         search_frame.pack(side='right')
 
         # Input Field
-        self.input_entry = tk.Entry(console_tab, font=("Consolas", 10))
-        self.input_entry.pack(fill='x', pady=(5, 0))
+        self.input_entry = tk.Entry(console_tab, font=("Consolas", 10), borderwidth=0, highlightthickness=0)
+        self.input_entry.pack(fill='x', padx=5, pady=(5, 0))
         self.input_entry.bind('<Return>', self._on_input_return)
-        self.input_entry.bind('<FocusIn>', self._stop_flash)
+        self.input_entry.bind('<FocusIn>', self._on_input_focus_in)
+        self.input_entry.bind('<FocusOut>', self._on_input_focus_out)
         self.is_flashing = False
+        
+        # Set placeholder
+        self.input_placeholder = "Input..."
+        self.input_has_placeholder = True
+        self.input_entry.insert(0, self.input_placeholder)
+        self.input_entry.config(foreground='gray')
         
         # Configure tags
         self.output_text.tag_config('error', foreground='red')
@@ -187,7 +194,7 @@ class ScriptManagerUI:
         history_list_frame = ttk.Frame(history_paned)
         history_paned.add(history_list_frame, weight=1)
         
-        self.history_listbox = tk.Listbox(history_list_frame, activestyle='none')
+        self.history_listbox = tk.Listbox(history_list_frame, activestyle='none', borderwidth=0, highlightthickness=0)
         self.history_listbox.pack(side='left', expand=True, fill='both')
         history_scrollbar = ttk.Scrollbar(history_list_frame, orient=tk.VERTICAL, command=self.history_listbox.yview)
         self.history_listbox.configure(yscrollcommand=history_scrollbar.set)
@@ -330,6 +337,10 @@ class ScriptManagerUI:
         self.controller.abort_script()
 
     def _on_input_return(self, event):
+        # Don't send if placeholder is active
+        if self.input_has_placeholder:
+            return
+            
         text = self.input_entry.get()
         if text:
             self.append_log(f"{text}\n", 'info') # Echo input to log
@@ -361,11 +372,11 @@ class ScriptManagerUI:
     def append_log(self, message, tag=None):
         self.append_log_batch([message], tag)
 
-    def append_log_batch(self, messages, tag=None):
+    def append_log_batch(self, messages, tag=None, skip_search_update=False, skip_ui_updates=False):
         self.output_text.config(state='normal')
         
-        # Check if placeholder is present
-        if self.output_text.get("1.0", "end-1c") == "Terminal Output...":
+        # Check if placeholder is present (only on first batch)
+        if not skip_ui_updates and self.output_text.get("1.0", "end-1c") == "Terminal Output...":
             self.output_text.delete("1.0", tk.END)
             
         for message in messages:
@@ -381,26 +392,35 @@ class ScriptManagerUI:
             
             self.output_text.insert(tk.END, message, current_tag)
 
-        # Heuristic for input prompt (check last message)
-        if messages:
-            last_msg = messages[-1]
-            stripped = last_msg.strip()
-            lower_last = last_msg.lower()
-            if stripped and (stripped.endswith(':') or stripped.endswith('?') or "enter" in lower_last or "input" in lower_last):
-                self.start_flash()
+        # Only do expensive UI updates if not skipped
+        if not skip_ui_updates:
+            # Heuristic for input prompt (check last message)
+            if messages:
+                last_msg = messages[-1]
+                stripped = last_msg.strip()
+                lower_last = last_msg.lower()
+                if stripped and (stripped.endswith(':') or stripped.endswith('?') or "enter" in lower_last or "input" in lower_last):
+                    self.start_flash()
 
-        self.output_text.see(tk.END)
-        
-        # Update search if active
-        if hasattr(self.output_text, 'search_state'):
-            query = self.output_text.search_state.get('query')
-            if query:
-                self._find_all(self.output_text, query)
+            self.output_text.see(tk.END)
+            
+            # Update search only if requested (skip during high-volume batching)
+            if not skip_search_update:
+                if hasattr(self.output_text, 'search_state'):
+                    query = self.output_text.search_state.get('query')
+                    if query:
+                        self._find_all(self.output_text, query)
 
         self.output_text.config(state='disabled')
 
     def start_flash(self):
         if not self.is_flashing:
+            # Clear placeholder if present
+            if self.input_has_placeholder:
+                self.input_entry.delete(0, tk.END)
+                self.input_entry.config(foreground=self.colors['input_fg'])
+                self.input_has_placeholder = False
+            
             self.is_flashing = True
             self._pulse_step(0)
 
@@ -410,6 +430,23 @@ class ScriptManagerUI:
             # Restore original color immediately
             c = self.colors
             self.input_entry.configure(bg=c['input_bg'])
+    
+    def _on_input_focus_in(self, event=None):
+        # Stop flashing
+        self._stop_flash()
+        
+        # Remove placeholder
+        if self.input_has_placeholder:
+            self.input_entry.delete(0, tk.END)
+            self.input_entry.config(foreground=self.colors['input_fg'])
+            self.input_has_placeholder = False
+    
+    def _on_input_focus_out(self, event=None):
+        # Add placeholder if empty
+        if not self.input_entry.get():
+            self.input_entry.insert(0, self.input_placeholder)
+            self.input_entry.config(foreground='gray')
+            self.input_has_placeholder = True
 
     def _pulse_step(self, step):
         if not self.is_flashing:
@@ -667,7 +704,7 @@ class ScriptManagerUI:
         gutter.pack(side='left', fill='y')
         
         # Main Text
-        text_widget = tk.Text(container, height=height, font=("Consolas", 10), wrap='none')
+        text_widget = tk.Text(container, height=height, font=("Consolas", 10), wrap='none', borderwidth=0, highlightthickness=0)
         text_widget.pack(side='left', expand=True, fill='both')
         
         # Scrollbar
