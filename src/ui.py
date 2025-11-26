@@ -187,7 +187,7 @@ class ScriptManagerUI:
         history_list_frame = ttk.Frame(history_paned)
         history_paned.add(history_list_frame, weight=1)
         
-        self.history_listbox = tk.Listbox(history_list_frame)
+        self.history_listbox = tk.Listbox(history_list_frame, activestyle='none')
         self.history_listbox.pack(side='left', expand=True, fill='both')
         history_scrollbar = ttk.Scrollbar(history_list_frame, orient=tk.VERTICAL, command=self.history_listbox.yview)
         self.history_listbox.configure(yscrollcommand=history_scrollbar.set)
@@ -215,7 +215,7 @@ class ScriptManagerUI:
         # Actually, let's just use the frame returned by _create_search_bar as the content of history_search_frame
         
         search_ui, self.history_search_entry = self._create_search_bar(history_search_frame, self.history_text)
-        search_ui.pack(side='left') # Or fill='x'
+        search_ui.pack(side='right')
 
         self.history_text.tag_config('highlight', background='yellow', foreground='black')
         self.history_text.tag_config('current_match', background='orange', foreground='black')
@@ -317,7 +317,6 @@ class ScriptManagerUI:
         if selection:
             self.clear_log()
             script_name = selection[0]
-            self.append_log(f"Running {script_name}...\n", 'info')
             
             # Update UI state
             self.run_button.config(state='disabled')

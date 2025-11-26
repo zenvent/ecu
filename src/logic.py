@@ -238,8 +238,17 @@ class ScriptManagerController:
             stderr_thread.join()
             process.wait()
             
+            # Queue the completion message BEFORE the sentinel
+            # This ensures it appears after all output
+            if self.ui:
+                completion_msg = f"\nScript finished with code {process.returncode}\n"
+                output_queue.put((completion_msg, 'info'))
+            
             # Signal end of output
             output_queue.put(None)
+            
+            # Wait for queue to be fully processed
+            time.sleep(0.3)
             
             if log_file:
                 log_file.close()
@@ -250,7 +259,6 @@ class ScriptManagerController:
                 self.current_process = None
 
             if self.ui:
-                self.ui.root.after(0, self.ui.append_log, f"\nScript finished with code {process.returncode}\n", 'info')
                 self.ui.root.after(0, self.ui.on_script_finished)
 
         except Exception as e:
