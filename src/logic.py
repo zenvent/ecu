@@ -7,8 +7,12 @@ class ScriptManagerController:
     def __init__(self):
         self.ui = None
         self.scripts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts')
+        self.logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
         self.scripts = {} # Map name -> full path
         self.current_process = None
+        
+        if not os.path.exists(self.logs_dir):
+            os.makedirs(self.logs_dir)
 
     def set_ui(self, ui):
         self.ui = ui
@@ -143,17 +147,41 @@ class ScriptManagerController:
             )
             
             process = self.current_process
+            
+            # Logging Setup
+            script_log_dir = os.path.join(self.logs_dir, script_name)
+            if not os.path.exists(script_log_dir):
+                os.makedirs(script_log_dir)
+            
+            timestamp = time.strftime('%Y-%m-%d_%H-%M-%S')
+            log_file_path = os.path.join(script_log_dir, f"{timestamp}.log")
+            
+            # Open log file
+            try:
+                log_file = open(log_file_path, 'w', encoding='utf-8')
+            except Exception as e:
+                if self.ui:
+                    self.ui.root.after(0, self.ui.append_log, f"Error opening log file: {e}\n", 'error')
+                log_file = None
 
             # Read output line by line
             for line in process.stdout:
                 if self.ui:
                     self.ui.root.after(0, self.ui.append_log, line)
+                if log_file:
+                    self._write_to_log(log_file, line, script_log_dir, timestamp)
             
             for line in process.stderr:
                 if self.ui:
                     self.ui.root.after(0, self.ui.append_log, line, 'error')
+                if log_file:
+                    self._write_to_log(log_file, line, script_log_dir, timestamp)
 
             process.wait()
+            
+            if log_file:
+                log_file.close()
+                self._cleanup_logs(script_log_dir)
             
             # Reset current process if it matches
             if self.current_process == process:
@@ -178,3 +206,53 @@ class ScriptManagerController:
         ]
         if self.ui:
             self.ui.update_actuator_table(mock_data)
+
+    def _write_to_log(self, log_file, content, log_dir, timestamp):
+        try:
+            # Check size (10MB limit)
+            if log_file.tell() > 10 * 1024 * 1024:
+                log_file.close()
+                # Find next part number
+                part = 1
+                while os.path.exists(os.path.join(log_dir, f"{timestamp}_part{part}.log")):
+                    part += 1
+                new_path = os.path.join(log_dir, f"{timestamp}_part{part}.log")
+                log_file = open(new_path, 'w', encoding='utf-8')
+            
+            log_file.write(content)
+            log_file.flush()
+        except Exception:
+            pass # Ignore logging errors to keep script running
+
+    def _cleanup_logs(self, log_dir):
+        try:
+            files = [os.path.join(log_dir, f) for f in os.listdir(log_dir) if f.endswith('.log')]
+            files.sort(key=os.path.getmtime)
+            
+            # Keep last 10
+            while len(files) > 10:
+                os.remove(files[0])
+                files.pop(0)
+        except Exception:
+            pass
+
+    def get_script_history(self, script_name):
+        log_dir = os.path.join(self.logs_dir, script_name)
+        if not os.path.exists(log_dir):
+            return []
+        try:
+            files = [f for f in os.listdir(log_dir) if f.endswith('.log')]
+            files.sort(reverse=True) # Newest first
+            return files
+        except Exception:
+            return []
+
+    def get_log_content(self, script_name, filename):
+        path = os.path.join(self.logs_dir, script_name, filename)
+        if not os.path.exists(path):
+            return ""
+        try:
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read()
+        except Exception:
+            return "Error reading log file."
