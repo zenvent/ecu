@@ -138,32 +138,30 @@ class ScriptManagerUI:
         action_bar = ttk.Frame(console_tab)
         action_bar.pack(fill='x', pady=5)
         
-        self.run_button = ttk.Button(action_bar, text="▶ Run Selected Script", command=self._on_run_clicked, state='disabled')
-        self.run_button.pack(side='left')
+        self.run_button = ttk.Button(action_bar, text="❯ Run Selected Script", command=self._on_run_clicked, state='disabled')
+        self.run_button.pack(side='left', padx=5)
 
         self.abort_button = ttk.Button(action_bar, text="⏹ Abort Script", command=self._on_abort_clicked, state='disabled')
         # self.abort_button.pack(side='left', padx=5) # Don't pack initially
 
         
 
-        # Search Controls (Right aligned in action_bar)
-        ttk.Button(action_bar, text="Find", command=lambda: self._find_text(self.output_text, self.console_search_entry.get())).pack(side='right')
-        self.console_search_entry = ttk.Entry(action_bar, width=20)
-        self.console_search_entry.pack(side='right', padx=5)
-        ttk.Label(action_bar, text="Find:").pack(side='right')
-
-        # Terminal Output (No Header)
-        # Replaced ScrolledText with Text + ttk.Scrollbar for better theming
+        # Terminal Output (No Gutter)
         terminal_frame = ttk.Frame(console_tab)
-        terminal_frame.pack(expand=True, fill='both')
+        terminal_frame.pack(expand=True, fill='both', padx=5, pady=5)
         
-        self.output_text = tk.Text(terminal_frame, state='normal', height=10, font=("Consolas", 10))
+        self.output_text = tk.Text(terminal_frame, borderwidth=0, state='normal', height=10, font=("Consolas", 10))
         output_scrollbar = ttk.Scrollbar(terminal_frame, orient=tk.VERTICAL, command=self.output_text.yview)
         self.output_text.configure(yscrollcommand=output_scrollbar.set)
         
         self.output_text.pack(side='left', expand=True, fill='both')
         output_scrollbar.pack(side='right', fill='y')
-        
+
+        # Search Controls (Right aligned in action_bar)
+        # We need to create the search bar AFTER the text widget exists
+        search_frame, self.console_search_entry = self._create_search_bar(action_bar, self.output_text)
+        search_frame.pack(side='right')
+
         # Input Field
         self.input_entry = tk.Entry(console_tab, font=("Consolas", 10))
         self.input_entry.pack(fill='x', pady=(5, 0))
@@ -176,6 +174,7 @@ class ScriptManagerUI:
         self.output_text.tag_config('info', foreground='blue')
         self.output_text.tag_config('placeholder', foreground='gray')
         self.output_text.tag_config('highlight', background='yellow', foreground='black')
+        self.output_text.tag_config('current_match', background='orange', foreground='black')
 
         # --- History Tab ---
         history_tab = ttk.Frame(self.bottom_notebook)
@@ -203,19 +202,23 @@ class ScriptManagerUI:
         # History Search Bar
         history_search_frame = ttk.Frame(history_preview_frame)
         history_search_frame.pack(fill='x', pady=(0, 2))
-        ttk.Label(history_search_frame, text="Find:").pack(side='left')
-        self.history_search_entry = ttk.Entry(history_search_frame)
-        self.history_search_entry.pack(side='left', fill='x', expand=True, padx=5)
-        ttk.Button(history_search_frame, text="Find", command=lambda: self._find_text(self.history_text, self.history_search_entry.get())).pack(side='left')
+        
+        # History Text (with Gutter)
+        history_container, self.history_text, self.history_gutter = self._create_text_with_gutter(history_preview_frame)
+        history_container.pack(side='left', expand=True, fill='both')
+        
+        # Create search bar (using history_search_frame as parent)
+        # Note: _create_search_bar packs items to the left, so we can just use it directly
+        # But we want it right aligned? No, user said "consistent". 
+        # In console it's in action bar (right aligned). Here it's a dedicated bar.
+        # Let's make it fill the bar but aligned left as per _create_search_bar default.
+        # Actually, let's just use the frame returned by _create_search_bar as the content of history_search_frame
+        
+        search_ui, self.history_search_entry = self._create_search_bar(history_search_frame, self.history_text)
+        search_ui.pack(side='left') # Or fill='x'
 
-        self.history_text = tk.Text(history_preview_frame, state='disabled', height=10, font=("Consolas", 10))
-        history_text_scrollbar = ttk.Scrollbar(history_preview_frame, orient=tk.VERTICAL, command=self.history_text.yview)
-        self.history_text.configure(yscrollcommand=history_text_scrollbar.set)
-        
-        self.history_text.pack(side='left', expand=True, fill='both')
-        history_text_scrollbar.pack(side='right', fill='y')
-        
         self.history_text.tag_config('highlight', background='yellow', foreground='black')
+        self.history_text.tag_config('current_match', background='orange', foreground='black')
 
         # Initial Placeholder
         self.clear_log() # Sets placeholder
@@ -279,11 +282,35 @@ class ScriptManagerUI:
             self.history_text.delete(1.0, tk.END)
             self.history_text.insert(tk.END, content)
             self.history_text.config(state='disabled')
+            
+            # Force update line numbers
+            if hasattr(self, 'history_gutter'):
+                self._update_line_numbers(self.history_text, self.history_gutter)
+                
+            # Reset Search State
+            if hasattr(self.history_text, 'search_state'):
+                # Clear previous matches
+                self.history_text.tag_remove('highlight', '1.0', tk.END)
+                self.history_text.tag_remove('current_match', '1.0', tk.END)
+                
+                # Re-run search if there is a query
+                query = self.history_text.search_state['query']
+                if query:
+                    self._find_all(self.history_text, query)
+                else:
+                    # Just reset state
+                    self.history_text.search_state['matches'] = []
+                    self.history_text.search_state['current_index'] = -1
+                    self.history_text.search_state['label'].config(text="0/0")
 
     def _clear_history_preview(self):
         self.history_text.config(state='normal')
         self.history_text.delete(1.0, tk.END)
         self.history_text.config(state='disabled')
+        
+        # Force update line numbers
+        if hasattr(self, 'history_gutter'):
+            self._update_line_numbers(self.history_text, self.history_gutter)
 
     def _on_run_clicked(self):
         selection = self.script_tree.selection()
@@ -333,27 +360,44 @@ class ScriptManagerUI:
             self.script_tree.insert('', tk.END, iid=filename, values=(display_name, description))
 
     def append_log(self, message, tag=None):
-        if not tag:
-            lower_text = message.lower()
-            if "error" in lower_text or "exception" in lower_text or "critical" in lower_text:
-                tag = 'error'
-            elif "warn" in lower_text:
-                tag = 'warning'
-            elif "info" in lower_text:
-                tag = 'info'
-            
-            # Heuristic for input prompt
-            stripped = message.strip()
-            if stripped and (stripped.endswith(':') or stripped.endswith('?') or "enter" in lower_text or "input" in lower_text):
-                self.start_flash()
+        self.append_log_batch([message], tag)
 
+    def append_log_batch(self, messages, tag=None):
         self.output_text.config(state='normal')
         
         # Check if placeholder is present
         if self.output_text.get("1.0", "end-1c") == "Terminal Output...":
             self.output_text.delete("1.0", tk.END)
-        self.output_text.insert(tk.END, message, tag)
+            
+        for message in messages:
+            current_tag = tag
+            if not current_tag:
+                lower_text = message.lower()
+                if "error" in lower_text or "exception" in lower_text or "critical" in lower_text:
+                    current_tag = 'error'
+                elif "warn" in lower_text:
+                    current_tag = 'warning'
+                elif "info" in lower_text:
+                    current_tag = 'info'
+            
+            self.output_text.insert(tk.END, message, current_tag)
+
+        # Heuristic for input prompt (check last message)
+        if messages:
+            last_msg = messages[-1]
+            stripped = last_msg.strip()
+            lower_last = last_msg.lower()
+            if stripped and (stripped.endswith(':') or stripped.endswith('?') or "enter" in lower_last or "input" in lower_last):
+                self.start_flash()
+
         self.output_text.see(tk.END)
+        
+        # Update search if active
+        if hasattr(self.output_text, 'search_state'):
+            query = self.output_text.search_state.get('query')
+            if query:
+                self._find_all(self.output_text, query)
+
         self.output_text.config(state='disabled')
 
     def start_flash(self):
@@ -462,10 +506,207 @@ class ScriptManagerUI:
         self.root.iconify()
         self.root.bind('<FocusIn>', self._on_restore)
 
-    def _on_restore(self, event):
+    def _create_search_bar(self, parent, text_widget):
+        frame = ttk.Frame(parent)
+        
+        ttk.Label(frame, text="Find:").pack(side='left')
+        entry = ttk.Entry(frame, width=30)
+        entry.pack(side='left', padx=5)
+        
+        # Navigation Buttons
+        ttk.Button(frame, text="▼", width=3, command=lambda: self._find_next(text_widget, entry)).pack(side='left', padx=1)
+        ttk.Button(frame, text="▲", width=3, command=lambda: self._find_prev(text_widget, entry)).pack(side='left', padx=1)
+        
+        # Toggles
+        case_var = tk.BooleanVar(value=False)
+        regex_var = tk.BooleanVar(value=False)
+        
+        # Update search on toggle
+        def on_toggle():
+            self._find_all(text_widget, entry.get())
+
+        ttk.Checkbutton(frame, text="Aa", variable=case_var, style='Toggle.TCheckbutton', command=on_toggle).pack(side='left', padx=2)
+        ttk.Checkbutton(frame, text=".*", variable=regex_var, style='Toggle.TCheckbutton', command=on_toggle).pack(side='left', padx=2)
+
+        # Result Count
+        count_label = ttk.Label(frame, text="0/0")
+        count_label.pack(side='left', padx=5)
+        
+        # Bind Enter key
+        entry.bind('<Return>', lambda e: self._find_next(text_widget, entry))
+        
+        # Store state on the text widget
+        text_widget.search_state = {
+            'matches': [],
+            'current_index': -1,
+            'query': '',
+            'label': count_label,
+            'case_var': case_var,
+            'regex_var': regex_var
+        }
+        
+        return frame, entry
+
+    def _find_all(self, text_widget, query):
+        text_widget.tag_remove('highlight', '1.0', tk.END)
+        text_widget.tag_remove('current_match', '1.0', tk.END)
+        
+        state = text_widget.search_state
+        state['matches'] = []
+        state['current_index'] = -1
+        state['query'] = query
+        
+        if not query:
+            state['label'].config(text="0/0")
+            return
+            
+        # Get toggle states
+        case_sensitive = state['case_var'].get()
+        use_regex = state['regex_var'].get()
+        
+        start_pos = '1.0'
+        while True:
+            # Prepare search arguments
+            kwargs = {'stopindex': tk.END}
+            if not case_sensitive:
+                kwargs['nocase'] = True
+            if use_regex:
+                kwargs['regexp'] = True
+                
+            try:
+                start_pos = text_widget.search(query, start_pos, **kwargs)
+            except tk.TclError:
+                # Invalid regex
+                break
+                
+            if not start_pos:
+                break
+                
+            # Calculate end position
+            if use_regex:
+                # For regex, we need the match length. 
+                # Tkinter search returns match length in 'count' variable if requested.
+                # But search() wrapper in Python simplifies this.
+                # Actually, text.search(..., count=var) is the way.
+                # Let's re-implement with count for regex support.
+                count_var = tk.IntVar()
+                kwargs['count'] = count_var
+                start_pos = text_widget.search(query, start_pos, **kwargs)
+                if not start_pos: 
+                    break
+                match_len = count_var.get()
+                if match_len == 0: match_len = 1 # Avoid infinite loop on empty match
+            else:
+                match_len = len(query)
+                
+            end_pos = f"{start_pos}+{match_len}c"
+            text_widget.tag_add('highlight', start_pos, end_pos)
+            state['matches'].append(start_pos)
+            start_pos = end_pos
+            
+        count = len(state['matches'])
+        if count > 0:
+            state['current_index'] = 0
+            self._highlight_current(text_widget)
+        else:
+            state['label'].config(text="0/0")
+
+    def _highlight_current(self, text_widget):
+        state = text_widget.search_state
+        idx = state['current_index']
+        matches = state['matches']
+        
+        if not matches:
+            return
+            
+        # Update Label
+        state['label'].config(text=f"{idx + 1}/{len(matches)}")
+        
+        # Highlight current
+        text_widget.tag_remove('current_match', '1.0', tk.END)
+        current_pos = matches[idx]
+        end_pos = f"{current_pos}+{len(state['query'])}c"
+        text_widget.tag_add('current_match', current_pos, end_pos)
+        text_widget.see(current_pos)
+
+    def _find_next(self, text_widget, entry):
+        query = entry.get()
+        state = text_widget.search_state
+        
+        if query != state['query']:
+            self._find_all(text_widget, query)
+            return
+
+        if not state['matches']:
+            return
+            
+        state['current_index'] = (state['current_index'] + 1) % len(state['matches'])
+        self._highlight_current(text_widget)
+
+    def _find_prev(self, text_widget, entry):
+        query = entry.get()
+        state = text_widget.search_state
+        
+        if query != state['query']:
+            self._find_all(text_widget, query)
+            return
+
+        if not state['matches']:
+            return
+            
+        state['current_index'] = (state['current_index'] - 1) % len(state['matches'])
+        self._highlight_current(text_widget)
         if self.root.state() == 'normal':
             self.root.overrideredirect(True)
             self.root.unbind('<FocusIn>')
+
+    def _create_text_with_gutter(self, parent, height=10):
+        container = ttk.Frame(parent)
+        
+        # Gutter (Line Numbers)
+        gutter = tk.Text(container, width=4, padx=4, takefocus=0, border=0, background='lightgray', state='disabled', font=("Consolas", 10))
+        gutter.pack(side='left', fill='y')
+        
+        # Main Text
+        text_widget = tk.Text(container, height=height, font=("Consolas", 10), wrap='none')
+        text_widget.pack(side='left', expand=True, fill='both')
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(container, orient=tk.VERTICAL, command=lambda *args: self._on_text_scroll(text_widget, gutter, *args))
+        text_widget.configure(yscrollcommand=lambda *args: self._on_scrollbar_scroll(scrollbar, gutter, *args))
+        
+        scrollbar.pack(side='right', fill='y')
+        
+        # Bind events for line number updates
+        text_widget.bind('<KeyRelease>', lambda e: self._update_line_numbers(text_widget, gutter))
+        text_widget.bind('<MouseWheel>', lambda e: self._update_line_numbers(text_widget, gutter))
+        text_widget.bind('<Button-1>', lambda e: self._update_line_numbers(text_widget, gutter))
+        text_widget.bind('<Configure>', lambda e: self._update_line_numbers(text_widget, gutter))
+        
+        # Store gutter reference on text widget for easy access
+        text_widget.gutter = gutter
+        
+        return container, text_widget, gutter
+
+    def _on_text_scroll(self, text_widget, gutter, *args):
+        text_widget.yview(*args)
+        gutter.yview(*args)
+
+    def _on_scrollbar_scroll(self, scrollbar, other_widget, *args):
+        scrollbar.set(*args)
+        other_widget.yview_moveto(args[0])
+
+    def _update_line_numbers(self, text_widget, gutter):
+        lines = text_widget.get('1.0', 'end-1c').count('\n') + 1
+        line_numbers = '\n'.join(str(i) for i in range(1, lines + 1))
+        
+        gutter.config(state='normal')
+        gutter.delete('1.0', tk.END)
+        gutter.insert('1.0', line_numbers)
+        gutter.config(state='disabled')
+        
+        # Sync yview
+        gutter.yview_moveto(text_widget.yview()[0])
 
     def _apply_theme(self):
         style = ttk.Style()
@@ -487,9 +728,13 @@ class ScriptManagerUI:
             self.output_text.tag_config('warning', foreground=c['warning_fg'])
             self.output_text.tag_config('error', foreground=c['error_fg'])
             
+
         if hasattr(self, 'history_text'):
             self.history_text.configure(bg=c['input_bg'], fg=c['fg'], insertbackground=c['fg'])
-            # History might not use tags yet, but good to have if we add them
+            
+        if hasattr(self, 'history_gutter'):
+            self.history_gutter.configure(bg=c['btn_bg'], fg=c['fg'])
+
         if hasattr(self, 'history_listbox'):
             self.history_listbox.configure(bg=c['tree_bg'], fg=c['tree_fg'], selectbackground=c['select_bg'], selectforeground=c['select_fg'])
         
@@ -518,13 +763,20 @@ class ScriptManagerUI:
         style.configure('TEntry', fieldbackground=c['input_bg'], foreground=c['input_fg'], borderwidth=1, relief='flat', bordercolor=c['border'], lightcolor=c['border'], darkcolor=c['border'])
         style.map('TEntry', fieldbackground=[('active', c['input_bg'])], foreground=[('active', c['input_fg'])], bordercolor=[('focus', c['select_bg'])])
         
+        # TCombobox (Minimal override for text visibility)
+        style.configure('TCombobox', foreground=c['input_fg'], fieldbackground=c['input_bg'])
+        style.map('TCombobox', fieldbackground=[('readonly', c['input_bg'])], foreground=[('readonly', c['input_fg'])], selectbackground=[('readonly', c['select_bg'])], selectforeground=[('readonly', c['select_fg'])])
+        
+        # Toggle Checkbutton (looks like a button)
+        style.configure('Toggle.TCheckbutton', background=c['btn_bg'], foreground=c['btn_fg'], padding=2)
+        style.map('Toggle.TCheckbutton', background=[('selected', c['select_bg']), ('active', c['select_bg'])], foreground=[('selected', c['select_fg']), ('active', c['select_fg'])])
+
         # Notebook
         style.configure('TNotebook', background=c['bg'], tabposition='nw', borderwidth=1, bordercolor=c['border'], lightcolor=c['border'], darkcolor=c['border'], tabmargins=[2, 0, 0, 0])
         style.configure('TNotebook.Tab', background=c['btn_bg'], foreground=c['btn_fg'], padding=[10, 5], borderwidth=1, bordercolor=c['border'], lightcolor=c['border'], darkcolor=c['border'])
         style.map('TNotebook.Tab', background=[('selected', c['bg'])], foreground=[('selected', c['fg'])], bordercolor=[('selected', c['border'])], lightcolor=[('selected', c['border'])], darkcolor=[('selected', c['border'])], padding=[('selected', [10, 5])])
         style.configure('TNotebook.client', background=c['bg'], borderwidth=0)
         
-        # Treeview
         style.configure('Treeview', 
             background=c['tree_bg'], 
             foreground=c['tree_fg'], 
@@ -575,3 +827,19 @@ class ScriptManagerUI:
 
         # Scrollbar (Standard TK - used by ScrolledText)
         # Removed as we are now using ttk.Scrollbar everywhere
+
+if __name__ == "__main__":
+    from logic import ScriptManagerController
+    
+    root = tk.Tk()
+    
+    # Initialize Controller
+    controller = ScriptManagerController()
+    
+    # Initialize UI, passing the controller
+    app = ScriptManagerUI(root, controller)
+    
+    # Connect UI back to Controller
+    controller.set_ui(app)
+    
+    root.mainloop()

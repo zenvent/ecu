@@ -164,20 +164,82 @@ class ScriptManagerController:
                     self.ui.root.after(0, self.ui.append_log, f"Error opening log file: {e}\n", 'error')
                 log_file = None
 
-            # Read output line by line
-            for line in process.stdout:
-                if self.ui:
-                    self.ui.root.after(0, self.ui.append_log, line)
-                if log_file:
-                    self._write_to_log(log_file, line, script_log_dir, timestamp)
+            # Read output line by line with queue-based ordering
+            import queue
+            output_queue = queue.Queue()
+            buffer = []
+            last_flush = time.time()
             
-            for line in process.stderr:
-                if self.ui:
-                    self.ui.root.after(0, self.ui.append_log, line, 'error')
-                if log_file:
-                    self._write_to_log(log_file, line, script_log_dir, timestamp)
+            def process_output_queue():
+                """Process queued output in UI thread"""
+                nonlocal buffer, last_flush
+                
+                # Pull items from queue
+                try:
+                    while True:
+                        item = output_queue.get_nowait()
+                        if item is None:  # Sentinel for end
+                            # Flush remaining buffer
+                            if buffer and self.ui:
+                                if hasattr(self.ui, 'append_log_batch'):
+                                    self.ui.append_log_batch([line for line, _ in buffer])
+                                else:
+                                    for line, tag in buffer:
+                                        self.ui.append_log(line, tag)
+                            return  # Done
+                        
+                        buffer.append(item)
+                        
+                        # Flush if buffer is large enough or enough time passed
+                        current_time = time.time()
+                        if len(buffer) >= 100 or (current_time - last_flush) > 0.1:
+                            if self.ui:
+                                if hasattr(self.ui, 'append_log_batch'):
+                                    self.ui.append_log_batch([line for line, _ in buffer])
+                                else:
+                                    for line, tag in buffer:
+                                        self.ui.append_log(line, tag)
+                            buffer = []
+                            last_flush = time.time()
+                            
+                except queue.Empty:
+                    pass
+                
+                # Schedule next check if process still running
+                if process.poll() is None or not output_queue.empty():
+                    self.ui.root.after(50, process_output_queue)
+                else:
+                    # Final flush
+                    if buffer and self.ui:
+                        if hasattr(self.ui, 'append_log_batch'):
+                            self.ui.append_log_batch([line for line, _ in buffer])
+                        else:
+                            for line, tag in buffer:
+                                self.ui.append_log(line, tag)
+            
+            def read_stream(stream, is_stderr=False):
+                tag = 'error' if is_stderr else None
+                for line in stream:
+                    output_queue.put((line, tag))
+                    if log_file:
+                        self._write_to_log(log_file, line, script_log_dir, timestamp)
 
+            # Start output processor in UI thread
+            if self.ui:
+                self.ui.root.after(0, process_output_queue)
+            
+            # Start stderr reader thread
+            stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, True))
+            stderr_thread.start()
+            
+            # Read stdout in main thread
+            read_stream(process.stdout, False)
+            
+            stderr_thread.join()
             process.wait()
+            
+            # Signal end of output
+            output_queue.put(None)
             
             if log_file:
                 log_file.close()
