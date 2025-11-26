@@ -167,14 +167,14 @@ class ScriptManagerUI:
         self.bottom_notebook.add(history_tab, text="History")
         
         history_paned = ttk.PanedWindow(history_tab, orient=tk.HORIZONTAL)
-        history_paned.pack(expand=True, fill='both', padx=5, pady=5)
+        history_paned.pack(expand=True, fill='both')
         
         # History List
         history_list_frame = ttk.Frame(history_paned)
         history_paned.add(history_list_frame, weight=1)
         
         self.history_listbox = tk.Listbox(history_list_frame, activestyle='none', borderwidth=0, highlightthickness=0)
-        self.history_listbox.pack(side='left', expand=True, fill='both')
+        self.history_listbox.pack(side='left', expand=True, fill='both', padx=(5, 0), pady=5)
         history_scrollbar = ttk.Scrollbar(history_list_frame, orient=tk.VERTICAL, command=self.history_listbox.yview)
         self.history_listbox.configure(yscrollcommand=history_scrollbar.set)
         history_scrollbar.pack(side='right', fill='y')
@@ -187,11 +187,11 @@ class ScriptManagerUI:
         
         # History Search Bar
         history_search_frame = ttk.Frame(history_preview_frame)
-        history_search_frame.pack(fill='x', pady=(0, 2))
+        history_search_frame.pack(fill='x', pady=5)
         
         # History Text (with Gutter)
         history_container, self.history_text, self.history_gutter = self._create_text_with_gutter(history_preview_frame)
-        history_container.pack(side='left', expand=True, fill='both')
+        history_container.pack(side='left', expand=True, fill='both', padx=5, pady=5)
         
         # Create search bar (using history_search_frame as parent)
         # Note: _create_search_bar packs items to the left, so we can just use it directly
@@ -773,7 +773,7 @@ class ScriptManagerUI:
         style.map('TCombobox', fieldbackground=[('readonly', c['input_bg'])], foreground=[('readonly', c['input_fg'])], selectbackground=[('readonly', c['select_bg'])], selectforeground=[('readonly', c['select_fg'])])
         
         # Toggle Checkbutton (looks like a button)
-        style.configure('Toggle.TCheckbutton', background=c['btn_bg'], foreground=c['btn_fg'], padding=2)
+        style.configure('Toggle.TCheckbutton', background=c['bg'], foreground=c['btn_fg'], padding=2)
         style.map('Toggle.TCheckbutton', background=[('selected', c['select_bg']), ('active', c['select_bg'])], foreground=[('selected', c['select_fg']), ('active', c['select_fg'])])
 
         # Notebook
