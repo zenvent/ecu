@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 import tkinter.scrolledtext as scrolledtext
 import winreg
+import ctypes
 
 THEMES = {
     'dark': {
@@ -44,51 +45,19 @@ class ScriptManagerUI:
         x_position = int((screen_width - window_width) / 2)
         y_position = int((screen_height - window_height) / 2)
         self.root.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
-        
-        self.root.overrideredirect(True) # Hide default title bar
-        
-        # Main Container (Border Effect)
+
+        # Main Container
         self.main_container = tk.Frame(root)
-        self.main_container.pack(fill='both', expand=True, padx=1, pady=1)
+        self.main_container.pack(fill='both', expand=True)
         
-        # Custom Title Bar
-        self.title_bar = tk.Frame(self.main_container, bg=THEMES['dark']['bg'], relief='flat')
-        self.title_bar.pack(fill='x', side='top')
-        
-        # Title Label
-        self.title_label = tk.Label(self.title_bar, text="Script Manager", font=("Segoe UI", 10), bg=THEMES['dark']['bg'], fg=THEMES['dark']['fg'])
-        self.title_label.pack(side='left', padx=10, pady=5)
-        
-        # Window Controls Frame
-        controls_frame = tk.Frame(self.title_bar, bg=THEMES['dark']['bg'])
-        controls_frame.pack(side='right')
-
-        # Close Button
-        self.close_button = tk.Button(controls_frame, text="✕", command=self.root.destroy, bd=0, padx=10, pady=5, bg=THEMES['dark']['bg'], fg=THEMES['dark']['fg'], activebackground='red', activeforeground='white')
-        self.close_button.pack(side='right')
-        
-        # Maximize Button
-        self.max_button = tk.Button(controls_frame, text="□", command=self._toggle_maximize, bd=0, padx=10, pady=5, bg=THEMES['dark']['bg'], fg=THEMES['dark']['fg'], activebackground=THEMES['dark']['select_bg'])
-        self.max_button.pack(side='right')
-        
-        # Minimize Button
-        self.min_button = tk.Button(controls_frame, text="─", command=self._minimize_window, bd=0, padx=10, pady=5, bg=THEMES['dark']['bg'], fg=THEMES['dark']['fg'], activebackground=THEMES['dark']['select_bg'])
-        self.min_button.pack(side='right')
-
-        # Theme Toggle
+        # Theme Toggle (Top Right)
         self.current_theme = self._get_system_theme()
         theme_icon = "☀" if self.current_theme == 'dark' else "🌙"
-        self.theme_button = tk.Button(controls_frame, text=theme_icon, command=self._toggle_theme, bd=0, padx=10, pady=5, bg=THEMES['dark']['bg'], fg=THEMES['dark']['fg'], activebackground=THEMES['dark']['select_bg'])
-        self.theme_button.pack(side='right')
-        
-        # Drag Logic
-        self.title_bar.bind('<Button-1>', self._start_move)
-        self.title_bar.bind('<B1-Motion>', self._on_move)
-        self.title_label.bind('<Button-1>', self._start_move)
-        self.title_label.bind('<B1-Motion>', self._on_move)
+        self.theme_button = tk.Button(self.main_container, text=theme_icon, command=self._toggle_theme, bd=0, padx=10, pady=5)
+        self.theme_button.place(relx=1.0, x=-10, y=10, anchor='ne')
         
         self.notebook = ttk.Notebook(self.main_container)
-        self.notebook.pack(expand=True, fill='both', padx=10, pady=10)
+        self.notebook.pack(expand=True, fill='both', padx=10, pady=40) # Add top padding for theme button
 
         # Tabs
         self.scripts_tab = ttk.Frame(self.notebook)
@@ -99,24 +68,11 @@ class ScriptManagerUI:
 
         self._setup_scripts_tab()
         self._setup_actuators_tab()
-        
-        # Resize Handle (bottom-right corner)
-        self.resize_grip = tk.Label(self.main_container, text="⋰", font=("Segoe UI", 12), 
-                                     bg=THEMES['dark']['bg'], fg=THEMES['dark']['fg'], 
-                                     cursor="size_nw_se")
-        self.resize_grip.place(relx=1.0, rely=1.0, anchor='se', x=-5, y=-5)
-        self.resize_grip.bind('<Button-1>', self._start_resize)
-        self.resize_grip.bind('<B1-Motion>', self._on_resize)
-        
-        # Resize state
-        self.resize_start_x = 0
-        self.resize_start_y = 0
-        self.resize_start_width = 0
-        self.resize_start_height = 0
 
         # Apply Theme - Call this LAST so all widgets exist
         self.colors = THEMES[self.current_theme]
-        self._apply_theme()
+        # Delay application slightly to ensure window handle is ready for DWM
+        self.root.after(10, self._apply_theme)
 
     def _setup_scripts_tab(self):
         # Layout: Top (Table), Bottom (Terminal)
@@ -540,45 +496,6 @@ class ScriptManagerUI:
             
         self._apply_theme()
 
-    def _start_move(self, event):
-        self.x = event.x
-        self.y = event.y
-
-    def _on_move(self, event):
-        deltax = event.x - self.x
-        deltay = event.y - self.y
-        x = self.root.winfo_x() + deltax
-        y = self.root.winfo_y() + deltay
-        self.root.geometry(f"+{x}+{y}")
-    
-    def _start_resize(self, event):
-        self.resize_start_x = event.x_root
-        self.resize_start_y = event.y_root
-        self.resize_start_width = self.root.winfo_width()
-        self.resize_start_height = self.root.winfo_height()
-    
-    def _on_resize(self, event):
-        delta_x = event.x_root - self.resize_start_x
-        delta_y = event.y_root - self.resize_start_y
-        new_width = max(800, self.resize_start_width + delta_x)  # Minimum width 800
-        new_height = max(600, self.resize_start_height + delta_y)  # Minimum height 600
-        self.root.geometry(f"{new_width}x{new_height}")
-
-    def _toggle_maximize(self):
-        if self.root.state() == 'zoomed':
-            self.root.state('normal')
-        else:
-            self.root.state('zoomed')
-
-    def _minimize_window(self):
-        # For overrideredirect windows, standard iconify can be tricky.
-        # Simple approach: withdraw and create a dummy window or just use state('iconic')
-        # Windows supports state('iconic') even for overrideredirect in some cases, but often it disappears.
-        # A robust workaround is complex. For now, we'll try standard iconify.
-        # If it fails to restore, user can Alt-Tab.
-        self.root.overrideredirect(False) # Temporarily restore to allow minimization
-        self.root.iconify()
-        self.root.bind('<FocusIn>', self._on_restore)
 
     def _create_search_bar(self, parent, text_widget):
         frame = ttk.Frame(parent)
@@ -782,11 +699,27 @@ class ScriptManagerUI:
         # Sync yview
         gutter.yview_moveto(text_widget.yview()[0])
 
+    def _set_title_bar_color(self, color_mode):
+        """
+        Changes the Windows title bar color using DwmSetWindowAttribute.
+        color_mode: 'dark' or 'light'
+        """
+        try:
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            # DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            value = 1 if color_mode == 'dark' else 0
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(value)), ctypes.sizeof(ctypes.c_int))
+        except Exception as e:
+            print(f"Failed to set title bar color: {e}")
+
     def _apply_theme(self):
         style = ttk.Style()
         style.theme_use('clam') # 'clam' allows easier color customization than 'vista'
 
         c = self.colors
+        
+        # Set Native Title Bar Color
+        self._set_title_bar_color(self.current_theme)
         
         # Root (Border)
         self.root.configure(bg=c['border'])
@@ -818,18 +751,9 @@ class ScriptManagerUI:
         if hasattr(self, 'input_entry'):
             self.input_entry.configure(bg=c['input_bg'], fg=c['input_fg'], insertbackground=c['fg'])
 
-        # Title Bar Updates
-        if hasattr(self, 'title_bar'):
-            self.title_bar.configure(bg=c['bg'])
-            self.title_label.configure(bg=c['bg'], fg=c['fg'])
-            # Controls
-            for btn in [self.close_button, self.max_button, self.min_button, self.theme_button]:
-                btn.configure(bg=c['bg'], fg=c['fg'], activebackground=c['select_bg'], activeforeground=c['select_fg'])
-            self.close_button.configure(activebackground='red', activeforeground='white')
-        
-        # Resize Grip
-        if hasattr(self, 'resize_grip'):
-            self.resize_grip.configure(bg=c['bg'], fg=c['fg'])
+        # Theme Button
+        if hasattr(self, 'theme_button'):
+             self.theme_button.configure(bg=c['bg'], fg=c['fg'], activebackground=c['select_bg'], activeforeground=c['select_fg'])
         
         # TTK Styles
         style.configure('.', background=c['bg'], foreground=c['fg'], fieldbackground=c['input_bg'])
