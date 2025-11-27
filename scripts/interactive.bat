@@ -11,4 +11,8 @@ if "%3"=="force" echo Force mode ON
 
 echo Doing some work...
 ping -n 3 127.0.0.1 >nul
+
+set /p user_input=Please enter something: 
+echo You entered: "%user_input%"
+
 echo Done.

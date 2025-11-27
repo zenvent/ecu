@@ -107,7 +107,7 @@ class ScriptManagerController:
         if self.current_process and self.current_process.poll() is None:
             try:
                 if self.current_process.stdin:
-                    self.current_process.stdin.write(text + "\n")
+                    self.current_process.stdin.write((text + "\n").encode('utf-8'))
                     self.current_process.stdin.flush()
             except Exception as e:
                 if self.ui:
@@ -155,7 +155,8 @@ class ScriptManagerController:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 stdin=subprocess.PIPE, # Enable stdin
-                text=True,
+                text=False, # Binary mode for unbuffered reading
+                bufsize=0,  # Unbuffered
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             
@@ -200,7 +201,7 @@ class ScriptManagerController:
                             # Flush remaining buffer - final flush, DO update search
                             if buffer and self.ui:
                                 if hasattr(self.ui, 'append_log_batch'):
-                                    self.ui.append_log_batch([line for line, _ in buffer], skip_search_update=False)
+                                    self.ui.append_log_batch(buffer, skip_search_update=False)
                                 else:
                                     for line, tag in buffer:
                                         self.ui.append_log(line, tag)
@@ -215,7 +216,7 @@ class ScriptManagerController:
                             if self.ui:
                                 if hasattr(self.ui, 'append_log_batch'):
                                     # Skip search AND UI updates during batching for performance
-                                    self.ui.append_log_batch([line for line, _ in buffer], skip_search_update=True, skip_ui_updates=True)
+                                    self.ui.append_log_batch(buffer, skip_search_update=True, skip_ui_updates=True)
                                 else:
                                     for line, tag in buffer:
                                         self.ui.append_log(line, tag)
@@ -229,7 +230,7 @@ class ScriptManagerController:
                         if (current_time - last_flush) > 0.005:  # 5ms
                             if hasattr(self.ui, 'append_log_batch'):
                                 # Skip search AND UI updates during batching
-                                self.ui.append_log_batch([line for line, _ in buffer], skip_search_update=True, skip_ui_updates=True)
+                                self.ui.append_log_batch(buffer, skip_search_update=True, skip_ui_updates=True)
                             else:
                                 for line, tag in buffer:
                                     self.ui.append_log(line, tag)
@@ -250,17 +251,32 @@ class ScriptManagerController:
                     # Final flush - DO update search
                     if buffer and self.ui:
                         if hasattr(self.ui, 'append_log_batch'):
-                            self.ui.append_log_batch([line for line, _ in buffer], skip_search_update=False)
+                            self.ui.append_log_batch(buffer, skip_search_update=False)
                         else:
                             for line, tag in buffer:
                                 self.ui.append_log(line, tag)
             
             def read_stream(stream, is_stderr=False):
                 tag = 'error' if is_stderr else None
-                for line in stream:
-                    output_queue.put((line, tag))
-                    if log_file:
-                        self._write_to_log(log_file, line, script_log_dir, timestamp)
+                fd = stream.fileno()
+                while True:
+                    try:
+                        # Read raw bytes
+                        data = os.read(fd, 1024)
+                        if not data:
+                            break
+                        
+                        # Decode
+                        text = data.decode('utf-8', errors='replace')
+                        
+                        # We might get partial lines or just prompts without newlines
+                        # The UI append_log handles this fine as it just inserts text
+                        output_queue.put((text, tag))
+                        
+                        if log_file:
+                            self._write_to_log(log_file, text, script_log_dir, timestamp)
+                    except OSError:
+                        break
 
             # Start output processor in UI thread
             if self.ui:

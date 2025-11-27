@@ -1,35 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 import tkinter.scrolledtext as scrolledtext
-import winreg
-import ctypes
-
-THEMES = {
-    'dark': {
-        'bg': '#1e1e1e', 'fg': '#d4d4d4',
-        'input_bg': '#252526', 'input_fg': '#cccccc',
-        'select_bg': '#094771', 'select_fg': '#ffffff',
-        'tree_bg': '#252526', 'tree_fg': '#d4d4d4',
-        'btn_bg': '#333333', 'btn_fg': '#ffffff',
-        'border': '#454545', # Dark Grey
-        'highlight': '#f1c40f', # Yellowish
-        'info_fg': '#569cd6', # VS Code Blue (Lighter)
-        'warning_fg': '#cca700', # Darker Yellow/Orange
-        'error_fg': '#f48771' # VS Code Red (Lighter)
-    },
-    'light': {
-        'bg': '#f3f3f3', 'fg': '#000000',
-        'input_bg': '#ffffff', 'input_fg': '#000000',
-        'select_bg': '#0078d7', 'select_fg': '#ffffff',
-        'tree_bg': '#ffffff', 'tree_fg': '#000000',
-        'btn_bg': '#e1e1e1', 'btn_fg': '#000000',
-        'border': '#cccccc',
-        'highlight': '#ffff00',
-        'info_fg': '#0000ff', # Standard Blue
-        'warning_fg': '#806000', # Dark Yellow
-        'error_fg': '#cd3131' # VS Code Red
-    }
-}
+import os
 
 class ScriptManagerUI:
     def __init__(self, root, controller):
@@ -50,15 +22,8 @@ class ScriptManagerUI:
         self.main_container = tk.Frame(root)
         self.main_container.pack(fill='both', expand=True)
         
-        # Theme Toggle (Top Right)
-        self.current_theme = self._get_system_theme()
-        theme_icon = "☀" if self.current_theme == 'dark' else "🌙"
-        self.theme_button = tk.Button(self.main_container, text=theme_icon, command=self._toggle_theme, bd=0, padx=10, pady=5)
-        self.theme_button.place(relx=1.0, x=-10, y=10, anchor='ne')
-        
         self.notebook = ttk.Notebook(self.main_container)
-        self.notebook.pack(expand=True, fill='both', padx=10, pady=10) # Add top padding for theme button
-        self.theme_button.lift()
+        self.notebook.pack(expand=True, fill='both', padx=10, pady=10)
 
         # Tabs
         self.scripts_tab = ttk.Frame(self.notebook)
@@ -67,15 +32,11 @@ class ScriptManagerUI:
         self.notebook.add(self.scripts_tab, text='Scripts')
         self.notebook.add(self.actuators_tab, text='Actuators')
 
-        # Initialize colors early
-        self.colors = THEMES[self.current_theme]
-
         self._setup_scripts_tab()
         self._setup_actuators_tab()
 
-        # Apply Theme - Call this LAST so all widgets exist
-        # Delay application slightly to ensure window handle is ready for DWM
-        self.root.after(10, self._apply_theme)
+        # Apply Theme
+        self._apply_theme()
 
     def _setup_scripts_tab(self):
         # Layout: Top (Table), Bottom (Terminal)
@@ -127,13 +88,11 @@ class ScriptManagerUI:
         self.flags_frame = ttk.Frame(action_bar)
         self.flags_frame.pack(side='left', padx=10)
 
-        
-
         # Terminal Output (No Gutter)
         terminal_frame = ttk.Frame(console_tab)
         terminal_frame.pack(expand=True, fill='both', padx=5, pady=5)
         
-        self.output_text = tk.Text(terminal_frame, borderwidth=0, state='normal', height=10, font=("Consolas", 10))
+        self.output_text = tk.Text(terminal_frame, borderwidth=0, state='normal', height=10, font=("Consolas", 10), bg="#1c1c1c", fg="#fafafa", insertbackground="#fafafa", selectbackground="#2f60d8", selectforeground="#ffffff")
         output_scrollbar = ttk.Scrollbar(terminal_frame, orient=tk.VERTICAL, command=self.output_text.yview)
         self.output_text.configure(yscrollcommand=output_scrollbar.set)
         
@@ -141,12 +100,11 @@ class ScriptManagerUI:
         output_scrollbar.pack(side='right', fill='y')
 
         # Search Controls (Right aligned in action_bar)
-        # We need to create the search bar AFTER the text widget exists
         search_frame, self.console_search_entry = self._create_search_bar(action_bar, self.output_text)
         search_frame.pack(side='right')
 
         # Input Field
-        self.input_entry = tk.Entry(console_tab, font=("Consolas", 10), borderwidth=0, highlightthickness=0, bg=self.colors['input_bg'])
+        self.input_entry = tk.Entry(console_tab, font=("Consolas", 10), borderwidth=0, highlightthickness=0, bg="#1c1c1c", fg="#fafafa", insertbackground="#fafafa", selectbackground="#2f60d8", selectforeground="#ffffff")
         self.input_entry.pack(fill='x', padx=5, pady=5, ipady=2)
         self.input_entry.bind('<Return>', self._on_input_return)
         self.input_entry.bind('<FocusIn>', self._on_input_focus_in)
@@ -160,9 +118,10 @@ class ScriptManagerUI:
         self.input_entry.config(foreground='gray')
         
         # Configure tags
-        self.output_text.tag_config('error', foreground='red')
-        self.output_text.tag_config('info', foreground='blue')
-        self.output_text.tag_config('placeholder', foreground='gray')
+        self.output_text.tag_config('error', foreground='#ff5555')
+        self.output_text.tag_config('info', foreground='#57c8ff')
+        self.output_text.tag_config('warning', foreground='#ffd700')
+        self.output_text.tag_config('placeholder', foreground='#808080')
         self.output_text.tag_config('highlight', background='yellow', foreground='black')
         self.output_text.tag_config('current_match', background='orange', foreground='black')
 
@@ -177,7 +136,7 @@ class ScriptManagerUI:
         history_list_frame = ttk.Frame(history_paned)
         history_paned.add(history_list_frame, weight=1)
         
-        self.history_listbox = tk.Listbox(history_list_frame, activestyle='none', borderwidth=0, highlightthickness=0)
+        self.history_listbox = tk.Listbox(history_list_frame, activestyle='none', borderwidth=0, highlightthickness=0, bg="#1c1c1c", fg="#fafafa", selectbackground="#2f60d8", selectforeground="#ffffff")
         self.history_listbox.pack(side='left', expand=True, fill='both', padx=(5, 0), pady=5)
         history_scrollbar = ttk.Scrollbar(history_list_frame, orient=tk.VERTICAL, command=self.history_listbox.yview)
         self.history_listbox.configure(yscrollcommand=history_scrollbar.set)
@@ -197,18 +156,15 @@ class ScriptManagerUI:
         history_container, self.history_text, self.history_gutter = self._create_text_with_gutter(history_preview_frame)
         history_container.pack(side='left', expand=True, fill='both', padx=5, pady=5)
         
-        # Create search bar (using history_search_frame as parent)
-        # Note: _create_search_bar packs items to the left, so we can just use it directly
-        # But we want it right aligned? No, user said "consistent". 
-        # In console it's in action bar (right aligned). Here it's a dedicated bar.
-        # Let's make it fill the bar but aligned left as per _create_search_bar default.
-        # Actually, let's just use the frame returned by _create_search_bar as the content of history_search_frame
-        
+        # Create search bar
         search_ui, self.history_search_entry = self._create_search_bar(history_search_frame, self.history_text)
         search_ui.pack(side='right')
 
         self.history_text.tag_config('highlight', background='yellow', foreground='black')
         self.history_text.tag_config('current_match', background='orange', foreground='black')
+        self.history_text.tag_config('error', foreground='#ff5555')
+        self.history_text.tag_config('info', foreground='#57c8ff')
+        self.history_text.tag_config('warning', foreground='#ffd700')
 
         # Initial Placeholder
         self.clear_log() # Sets placeholder
@@ -279,7 +235,7 @@ class ScriptManagerUI:
             for line in content.splitlines(keepends=True):
                 tag = None
                 lower_text = line.lower()
-                if "error" in lower_text or "exception" in lower_text or "critical" in lower_text:
+                if "error" in lower_text or "exception" in lower_text or "critical" in lower_text or "stderr" in lower_text or "failure" in lower_text:
                     tag = 'error'
                 elif "warn" in lower_text:
                     tag = 'warning'
@@ -348,6 +304,8 @@ class ScriptManagerUI:
             self.append_log(f"{text}\n", 'info') # Echo input to log
             self.controller.send_input(text)
             self.input_entry.delete(0, tk.END)
+            # Reset border
+            self.input_entry.config(highlightthickness=0)
 
     def on_script_finished(self):
         self.run_button.config(state='normal', text="❯ Run Selected Script")
@@ -379,8 +337,13 @@ class ScriptManagerUI:
         if not skip_ui_updates and self.output_text.get("1.0", "end-1c") == "Terminal Output...":
             self.output_text.delete("1.0", tk.END)
             
-        for message in messages:
-            current_tag = tag
+        for item in messages:
+            if isinstance(item, tuple):
+                message, current_tag = item
+            else:
+                message = item
+                current_tag = tag
+
             if not current_tag:
                 lower_text = message.lower()
                 if "error" in lower_text or "exception" in lower_text or "critical" in lower_text:
@@ -392,16 +355,22 @@ class ScriptManagerUI:
             
             self.output_text.insert(tk.END, message, current_tag)
 
+        # Heuristic for input prompt (check last message)
+        # Check ALWAYS, even if skipping UI updates, to ensure we catch the prompt
+        if messages:
+            last_item = messages[-1]
+            if isinstance(last_item, tuple):
+                last_msg = last_item[0]
+            else:
+                last_msg = last_item
+            
+            stripped = last_msg.strip()
+            lower_last = last_msg.lower()
+            if stripped and (stripped.endswith(':') or stripped.endswith('?') or "enter" in lower_last or "input" in lower_last):
+                self.notify_input_requested()
+
         # Only do expensive UI updates if not skipped
         if not skip_ui_updates:
-            # Heuristic for input prompt (check last message)
-            if messages:
-                last_msg = messages[-1]
-                stripped = last_msg.strip()
-                lower_last = last_msg.lower()
-                if stripped and (stripped.endswith(':') or stripped.endswith('?') or "enter" in lower_last or "input" in lower_last):
-                    self.start_flash()
-
             self.output_text.see(tk.END)
             
             # Update search only if requested (skip during high-volume batching)
@@ -413,32 +382,17 @@ class ScriptManagerUI:
 
         self.output_text.config(state='disabled')
 
-    def start_flash(self):
-        if not self.is_flashing:
-            # Clear placeholder if present
-            if self.input_has_placeholder:
-                self.input_entry.delete(0, tk.END)
-                self.input_entry.config(foreground=self.colors['input_fg'])
-                self.input_has_placeholder = False
-            
-            self.is_flashing = True
-            self._pulse_step(0)
+    def notify_input_requested(self):
+        # Visual notification (Orange border)
+        self.input_entry.config(highlightthickness=2, highlightbackground='#b04a00', highlightcolor='#b04a00')
+        self.input_entry.focus_set()
 
-    def _stop_flash(self, event=None):
-        if self.is_flashing:
-            self.is_flashing = False
-            # Restore original color immediately
-            c = self.colors
-            self.input_entry.configure(bg=c['input_bg'])
-    
     def _on_input_focus_in(self, event=None):
-        # Stop flashing
-        self._stop_flash()
-        
         # Remove placeholder
         if self.input_has_placeholder:
             self.input_entry.delete(0, tk.END)
-            self.input_entry.config(foreground=self.colors['input_fg'])
+            self.input_entry.delete(0, tk.END)
+            self.input_entry.config(foreground='#fafafa') # Theme fg
             self.input_has_placeholder = False
     
     def _on_input_focus_out(self, event=None):
@@ -447,20 +401,6 @@ class ScriptManagerUI:
             self.input_entry.insert(0, self.input_placeholder)
             self.input_entry.config(foreground='gray')
             self.input_has_placeholder = True
-
-    def _pulse_step(self, step):
-        if not self.is_flashing:
-            return
-
-        c = self.colors
-        # Slow pulse: 800ms per state change
-        if step % 2 == 0:
-            new_bg = c['select_bg']
-        else:
-            new_bg = c['input_bg']
-            
-        self.input_entry.configure(bg=new_bg)
-        self.root.after(800, lambda: self._pulse_step(step + 1))
 
     def clear_log(self):
         self.output_text.config(state='normal')
@@ -494,27 +434,6 @@ class ScriptManagerUI:
         first_match = text_widget.search(query, '1.0', stopindex=tk.END)
         if first_match:
             text_widget.see(first_match)
-
-    def _get_system_theme(self):
-        try:
-            registry = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
-            key = winreg.OpenKey(registry, r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize')
-            value, _ = winreg.QueryValueEx(key, 'AppsUseLightTheme')
-            return 'light' if value == 1 else 'dark'
-        except Exception:
-            return 'dark'
-
-    def _toggle_theme(self):
-        self.current_theme = 'light' if self.current_theme == 'dark' else 'dark'
-        self.colors = THEMES[self.current_theme]
-        
-        # Update button text
-        new_icon = "☀" if self.current_theme == 'dark' else "🌙"
-        if hasattr(self, 'theme_button'):
-            self.theme_button.config(text=new_icon)
-            
-        self._apply_theme()
-
 
     def _update_flags_ui(self, script_name):
         self._clear_flags_ui()
@@ -694,11 +613,11 @@ class ScriptManagerUI:
         container = ttk.Frame(parent)
         
         # Gutter (Line Numbers)
-        gutter = tk.Text(container, width=4, padx=4, takefocus=0, border=0, background='lightgray', state='disabled', font=("Consolas", 10))
+        gutter = tk.Text(container, width=4, padx=4, takefocus=0, border=0, background='#252526', foreground='#fafafa', state='disabled', font=("Consolas", 10))
         gutter.pack(side='left', fill='y')
         
         # Main Text
-        text_widget = tk.Text(container, height=height, font=("Consolas", 10), wrap='none', borderwidth=0, highlightthickness=0)
+        text_widget = tk.Text(container, height=height, font=("Consolas", 10), wrap='none', borderwidth=0, highlightthickness=0, bg="#1c1c1c", fg="#fafafa", insertbackground="#fafafa", selectbackground="#2f60d8", selectforeground="#ffffff")
         text_widget.pack(side='left', expand=True, fill='both')
         
         # Scrollbar
@@ -738,140 +657,12 @@ class ScriptManagerUI:
         # Sync yview
         gutter.yview_moveto(text_widget.yview()[0])
 
-    def _set_title_bar_color(self, color_mode):
-        """
-        Changes the Windows title bar color using DwmSetWindowAttribute.
-        color_mode: 'dark' or 'light'
-        """
-        try:
-            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
-            # DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-            value = 1 if color_mode == 'dark' else 0
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(value)), ctypes.sizeof(ctypes.c_int))
-        except Exception as e:
-            print(f"Failed to set title bar color: {e}")
-
     def _apply_theme(self):
+        theme_path = os.path.join(os.path.dirname(__file__), "theme", "sv.tcl")
+        self.root.tk.call("source", theme_path)
         style = ttk.Style()
-        style.theme_use('clam') # 'clam' allows easier color customization than 'vista'
+        style.theme_use("sun-valley-dark")
 
-        c = self.colors
-        
-        # Set Native Title Bar Color
-        self._set_title_bar_color(self.current_theme)
-        
-        # Root (Border)
-        self.root.configure(bg=c['border'])
-        
-        # Main Container
-        if hasattr(self, 'main_container'):
-            self.main_container.configure(bg=c['bg'])
-            
-        # Update existing TK widgets
-        if hasattr(self, 'output_text'):
-            self.output_text.configure(bg=c['input_bg'], fg=c['fg'], insertbackground=c['fg'])
-            self.output_text.tag_config('info', foreground=c['info_fg'])
-            self.output_text.tag_config('warning', foreground=c['warning_fg'])
-            self.output_text.tag_config('error', foreground=c['error_fg'])
-            
-
-        if hasattr(self, 'history_text'):
-            self.history_text.configure(bg=c['input_bg'], fg=c['fg'], insertbackground=c['fg'])
-            self.history_text.tag_config('info', foreground=c['info_fg'])
-            self.history_text.tag_config('warning', foreground=c['warning_fg'])
-            self.history_text.tag_config('error', foreground=c['error_fg'])
-            
-        if hasattr(self, 'history_gutter'):
-            self.history_gutter.configure(bg=c['btn_bg'], fg=c['fg'])
-
-        if hasattr(self, 'history_listbox'):
-            self.history_listbox.configure(bg=c['tree_bg'], fg=c['tree_fg'], selectbackground=c['select_bg'], selectforeground=c['select_fg'])
-        
-        if hasattr(self, 'input_entry'):
-            current_fg = 'gray' if getattr(self, 'input_has_placeholder', False) else c['input_fg']
-            self.input_entry.configure(bg=c['input_bg'], fg=current_fg, insertbackground=c['fg'])
-
-        # Theme Button
-        if hasattr(self, 'theme_button'):
-             self.theme_button.configure(bg=c['bg'], fg=c['fg'], activebackground=c['select_bg'], activeforeground=c['select_fg'])
-        
-        # TTK Styles
-        style.configure('.', background=c['bg'], foreground=c['fg'], fieldbackground=c['input_bg'])
-        style.configure('TFrame', background=c['bg'], borderwidth=0)
-        style.configure('TLabel', background=c['bg'], foreground=c['fg'])
-        
-        # Buttons
-        style.configure('TButton', background=c['btn_bg'], foreground=c['btn_fg'], borderwidth=0, focuscolor=c['select_bg'])
-        style.map('TButton', background=[('active', c['select_bg'])], foreground=[('active', c['select_fg'])])
-        
-        # TEntry (for ttk.Entry)
-        style.configure('TEntry', fieldbackground=c['input_bg'], foreground=c['input_fg'], borderwidth=1, relief='flat', bordercolor=c['border'], lightcolor=c['border'], darkcolor=c['border'])
-        style.map('TEntry', fieldbackground=[('active', c['input_bg'])], foreground=[('active', c['input_fg'])], bordercolor=[('focus', c['select_bg'])])
-        
-        # TCombobox (Minimal override for text visibility)
-        style.configure('TCombobox', foreground=c['input_fg'], fieldbackground=c['input_bg'])
-        style.map('TCombobox', fieldbackground=[('readonly', c['input_bg'])], foreground=[('readonly', c['input_fg'])], selectbackground=[('readonly', c['select_bg'])], selectforeground=[('readonly', c['select_fg'])])
-        
-        # Toggle Checkbutton (looks like a button)
-        style.configure('Toggle.TCheckbutton', background=c['bg'], foreground=c['btn_fg'], padding=2)
-        style.map('Toggle.TCheckbutton', background=[('selected', c['select_bg']), ('active', c['select_bg'])], foreground=[('selected', c['select_fg']), ('active', c['select_fg'])])
-
-        # Notebook
-        style.configure('TNotebook', background=c['bg'], tabposition='nw', borderwidth=1, bordercolor=c['border'], lightcolor=c['border'], darkcolor=c['border'], tabmargins=[2, 0, 0, 0])
-        style.configure('TNotebook.Tab', background=c['btn_bg'], foreground=c['btn_fg'], padding=[10, 5], borderwidth=1, bordercolor=c['border'], lightcolor=c['border'], darkcolor=c['border'])
-        style.map('TNotebook.Tab', background=[('selected', c['bg'])], foreground=[('selected', c['fg'])], bordercolor=[('selected', c['border'])], lightcolor=[('selected', c['border'])], darkcolor=[('selected', c['border'])], padding=[('selected', [10, 5])])
-        style.configure('TNotebook.client', background=c['bg'], borderwidth=0)
-        
-        style.configure('Treeview', 
-            background=c['tree_bg'], 
-            foreground=c['tree_fg'], 
-            fieldbackground=c['tree_bg'],
-            borderwidth=0,
-            relief='flat',
-            bordercolor=c['bg'],
-            lightcolor=c['bg'],
-            darkcolor=c['bg']
-        )
-        style.map('Treeview', background=[('selected', c['select_bg'])], foreground=[('selected', c['select_fg'])])
-        
-        style.configure('Treeview.Heading', background=c['btn_bg'], foreground=c['btn_fg'], relief='flat', borderwidth=0)
-        style.map('Treeview.Heading', background=[('active', c['select_bg'])])
-        
-        # Scrollbars (Clam theme specific)
-        style.configure("Vertical.TScrollbar", gripcount=0,
-                background=c['btn_bg'], darkcolor=c['bg'], lightcolor=c['bg'],
-                troughcolor=c['bg'], bordercolor=c['bg'], arrowcolor=c['fg'])
-        style.map("Vertical.TScrollbar", background=[('active', c['select_bg'])])
-        
-        style.configure("Horizontal.TScrollbar", gripcount=0,
-                background=c['btn_bg'], darkcolor=c['bg'], lightcolor=c['bg'],
-                troughcolor=c['bg'], bordercolor=c['bg'], arrowcolor=c['fg'])
-        style.map("Horizontal.TScrollbar", background=[('active', c['select_bg'])])
-        
-        # PanedWindow
-        style.configure("TPanedwindow", background=c['bg'], borderwidth=0)
-        style.configure("Sash", sashthickness=2, sashpad=0, handlepad=0, handlesize=0, background=c['bg'])
-
-        # Configure TK Widgets
-        # Text Widget (Standard TK)
-        self.root.option_add('*Text.background', c['input_bg'])
-        self.root.option_add('*Text.foreground', c['fg'])
-        self.root.option_add('*Text.relief', 'flat')
-        self.root.option_add('*Text.highlightThickness', '1')
-        self.root.option_add('*Text.highlightBackground', c['border'])
-        self.root.option_add('*Text.highlightColor', c['select_bg'])
-
-        # Listbox (Standard TK)
-        self.root.option_add('*Listbox.background', c['tree_bg'])
-        self.root.option_add('*Listbox.foreground', c['tree_fg'])
-        self.root.option_add('*Listbox.selectBackground', c['select_bg'])
-        self.root.option_add('*Listbox.selectForeground', c['select_fg'])
-        self.root.option_add('*Listbox.relief', 'flat')
-        self.root.option_add('*Listbox.highlightThickness', '1')
-        self.root.option_add('*Listbox.highlightBackground', c['btn_bg'])
-
-        # Scrollbar (Standard TK - used by ScrolledText)
-        # Removed as we are now using ttk.Scrollbar everywhere
 
 if __name__ == "__main__":
     from logic import ScriptManagerController
