@@ -304,8 +304,8 @@ class ScriptManagerUI:
             self.append_log(f"{text}\n", 'info') # Echo input to log
             self.controller.send_input(text)
             self.input_entry.delete(0, tk.END)
-            # Reset border
-            self.input_entry.config(highlightthickness=0)
+            # Reset border (Thickness 0 and match background)
+            self.input_entry.config(highlightthickness=0, highlightbackground='#1c1c1c', highlightcolor='#1c1c1c')
 
     def on_script_finished(self):
         self.run_button.config(state='normal', text="❯ Run Selected Script")
@@ -365,8 +365,8 @@ class ScriptManagerUI:
                 last_msg = last_item
             
             stripped = last_msg.strip()
-            lower_last = last_msg.lower()
-            if stripped and (stripped.endswith(':') or stripped.endswith('?') or "enter" in lower_last or "input" in lower_last):
+            # Stricter heuristic: Must end with common prompt characters
+            if stripped and (stripped.endswith(':') or stripped.endswith('?') or stripped.endswith('>')):
                 self.notify_input_requested()
 
         # Only do expensive UI updates if not skipped
